@@ -12,28 +12,33 @@ struct sbiret {
   };
 };
 
-void putchar(char c) {
-  __asm__ __volatile__("li a7, %0\n"
-                       "li a6, 0\n"
-                       "mv a0, %1\n"
-                       "ecall\n"
-                       :
-                       : "i"(SBI_CONSOLE_PUTCHAR), "r"(c)
-                       : "a0", "a6", "a7", "memory");
+struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
+                       long arg5, long fid, long eid) {
+  register long a0 __asm__("a0") = arg0;
+  register long a1 __asm__("a1") = arg1;
+  register long a2 __asm__("a2") = arg2;
+  register long a3 __asm__("a3") = arg3;
+  register long a4 __asm__("a4") = arg4;
+  register long a5 __asm__("a5") = arg5;
+  register long a6 __asm__("a6") = fid;
+  register long a7 __asm__("a7") = eid;
+
+  __asm__ __volatile__("ecall"
+                       : "+r"(a0), "=r"(a1)
+                       : "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6), "r"(a7)
+                       : "memory");
+
+  return (struct sbiret){.error = a0, .value = a1};
 }
 
+void putchar(char c) { sbi_call(c, 0, 0, 0, 0, 0, 0, SBI_CONSOLE_PUTCHAR); }
+
 char getchar(void) {
-  int c;
+  struct sbiret ret;
   do {
-    __asm__ __volatile__("li a7, %1\n"
-                         "li a6, 0\n"
-                         "ecall\n"
-                         "mv %0, a0\n"
-                         : "=r"(c)
-                         : "i"(SBI_CONSOLE_GETCHAR)
-                         : "a0", "a6", "a7", "memory");
-  } while (c == -1);
-  return (char)c;
+    ret = sbi_call(0, 0, 0, 0, 0, 0, 0, SBI_CONSOLE_GETCHAR);
+  } while (ret.error == -1);
+  return (char)ret.error;
 }
 
 void print(const char *str) {
@@ -95,61 +100,18 @@ void print_help(void) {
 
 // sbi calls
 struct sbiret get_sbi_spec_version(void) {
-  register long a0 __asm__("a0");
-  register long a1 __asm__("a1");
-  register long a6 __asm__("a6") = 0;
-  register long a7 __asm__("a7") = 0x10;
-
-  __asm__ __volatile__("ecall"
-                       : "=r"(a0), "=r"(a1)
-                       : "r"(a6), "r"(a7)
-                       : "memory");
-
-  struct sbiret ret;
-  ret.error = a0;
-  ret.value = a1;
-  return ret;
+  return sbi_call(0, 0, 0, 0, 0, 0, 0, 0x10);
 }
 
 struct sbiret get_pmu_num_counters(void) {
-  register long a0 __asm__("a0");
-  register long a1 __asm__("a1");
-  register long a6 __asm__("a6") = 0;
-  register long a7 __asm__("a7") = 0x504D55;
-
-  __asm__ __volatile__("ecall"
-                       : "=r"(a0), "=r"(a1)
-                       : "r"(a6), "r"(a7)
-                       : "memory");
-
-  struct sbiret ret;
-  ret.error = a0;
-  ret.value = a1;
-  return ret;
+  return sbi_call(0, 0, 0, 0, 0, 0, 0, 0x504D55);
 }
 
 struct sbiret get_pmu_counter_info(unsigned long counter_idx) {
-  register long a0 __asm__("a0") = counter_idx;
-  register long a1 __asm__("a1");
-  register long a6 __asm__("a6") = 1;
-  register long a7 __asm__("a7") = 0x504D55;
-
-  __asm__ __volatile__("ecall"
-                       : "+r"(a0), "=r"(a1)
-                       : "r"(a6), "r"(a7)
-                       : "memory");
-
-  struct sbiret ret;
-  ret.error = a0;
-  ret.value = a1;
-  return ret;
+  return sbi_call(counter_idx, 0, 0, 0, 0, 0, 1, 0x504D55);
 }
 
-void shutdown(void) {
-  register long a6 __asm__("a6") = 0;
-  register long a7 __asm__("a7") = SBI_SHUTDOWN;
-  __asm__ __volatile__("ecall\n" : : "r"(a6), "r"(a7) : "memory");
-}
+void shutdown(void) { sbi_call(0, 0, 0, 0, 0, 0, 0, SBI_SHUTDOWN); }
 
 void kernel_main(void) {
   println("HI!");
@@ -168,7 +130,6 @@ void kernel_main(void) {
       putchar('.');
       print_int(minor);
       putchar('\n');
-
     } else if (c == '2') {
       struct sbiret ret = get_pmu_num_counters();
       print("number of pmu counters: ");
